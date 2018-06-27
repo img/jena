@@ -37,7 +37,7 @@ public class CacheFactory
      */
     public static <Key, Value> Cache<Key, Value> createCache(float loadFactor, int maxSize)
     {
-        return new CacheLRU<Key, Value>(loadFactor, maxSize) ;
+        return new CacheGuava<Key, Value>(maxSize) ;
     }
     
     /** Create a cache which has space for upto a certain number of objects. 
@@ -101,7 +101,7 @@ public class CacheFactory
      */
     public static <Obj> CacheSet<Obj> createCacheSet(int size)
     {
-        return new CacheSetLRU<Obj>(size) ;
+        return new CacheSetGuava<Obj>(size) ;
     }
 
     /** Add a synchronization wrapper to an existing set-cache */

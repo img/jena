@@ -19,14 +19,14 @@
 package com.hp.hpl.jena.tdb.nodetable;
 
 import java.util.Iterator ;
-
 import org.openjena.atlas.iterator.Iter ;
 import org.openjena.atlas.lib.Cache ;
 import org.openjena.atlas.lib.CacheFactory ;
 import org.openjena.atlas.lib.CacheSet ;
 import org.openjena.atlas.lib.Pair ;
 import org.openjena.atlas.logging.Log ;
-
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import com.hp.hpl.jena.graph.Node ;
 import com.hp.hpl.jena.tdb.TDBException ;
@@ -38,8 +38,8 @@ import com.hp.hpl.jena.tdb.store.NodeId ;
  */ 
 public class NodeTableCache implements NodeTable
 {
+    final private static Logger log = LoggerFactory.getLogger(NodeTableCache.class) ;
     // These caches are updated together.
-    // See synchronization in _retrieveNodeByNodeId and _idForNode
     private Cache<Node, NodeId> node2id_Cache = null ;
     private Cache<NodeId, Node> id2node_Cache = null ;
     
@@ -47,7 +47,6 @@ public class NodeTableCache implements NodeTable
     // Cache update needed on NodeTable changes because a node may become "known"
     private CacheSet<Node> notPresent = null ;
     private NodeTable baseTable ;
-    private Object lock = new Object() ;
 
     public static NodeTable create(NodeTable nodeTable, int nodeToIdCacheSize, int idToNodeCacheSize, int nodeMissesCacheSize)
     {
@@ -65,6 +64,8 @@ public class NodeTableCache implements NodeTable
             id2node_Cache = CacheFactory.createCache(idToNodeCacheSize) ;
         if ( nodeMissesCacheSize > 0 )
             notPresent = CacheFactory.createCacheSet(nodeMissesCacheSize) ;
+        Log.debug(this,  "New nodetablecache nodeToIdCacheSize=" + nodeToIdCacheSize + ", idToNodeCacheSize=" + idToNodeCacheSize
+        		+ ", nodeMissesCacheSize=" + nodeMissesCacheSize);
     }
 
     /** Get the Node for this NodeId, or null if none */
@@ -91,19 +92,16 @@ public class NodeTableCache implements NodeTable
         if ( NodeId.isAny(id) )
             return null ;
 
-        synchronized (lock)
-        {
-            Node n = cacheLookup(id) ;
-            if ( n != null )
-                return n ; 
-
-            if ( baseTable == null )
-                System.err.println(""+this) ;
-            
-            n = baseTable.getNodeForNodeId(id) ;
-            cacheUpdate(n, id) ;
-            return n ;
+        Node n = cacheLookup(id) ;
+        if (null != n) {
+        	return n;
         }
+        if ( baseTable == null )
+        	System.err.println(""+this) ;
+
+        n = baseTable.getNodeForNodeId(id) ;
+        cacheUpdate(n, id) ;
+        return n ;
     }
 
     // Node ==> NodeId
@@ -111,23 +109,19 @@ public class NodeTableCache implements NodeTable
     {
         if ( node == Node.ANY )
             return NodeId.NodeIdAny ;
-        
-        synchronized (lock)
-        {
-            // Check caches.
-            NodeId nodeId = cacheLookup(node) ;
-            if ( nodeId != null )
-                return nodeId ; 
-
-            if ( allocate )
-                nodeId = baseTable.getAllocateNodeId(node) ;
-            else
-                nodeId = baseTable.getNodeIdForNode(node) ;
-
-            // Ensure caches have it.  Includes recording "no such node"
-            cacheUpdate(node, nodeId) ;
-            return nodeId ;
+        // Check caches.
+        NodeId nodeId = cacheLookup(node) ;
+        if ( nodeId != null ) {
+            return nodeId ; 
         }
+        if ( allocate )
+        	nodeId = baseTable.getAllocateNodeId(node) ;
+        else
+        	nodeId = baseTable.getNodeIdForNode(node) ;
+
+        // Ensure caches have it.  Includes recording "no such node"
+        cacheUpdate(node, nodeId) ;
+        return nodeId ;
     }
 
     // ----------------
@@ -154,7 +148,6 @@ public class NodeTableCache implements NodeTable
     /** Update the Node->NodeId caches */
     private void cacheUpdate(Node node, NodeId id)
     {
-        // synchronized is further out.
         // The "notPresent" cache is used to note whether a node
         // is known not to exist.
         // This must be specially handled later if the node is added. 
@@ -171,13 +164,15 @@ public class NodeTableCache implements NodeTable
             return ;
         }
         
-        if ( node2id_Cache != null )
-            node2id_Cache.put(node, id) ;
-        if ( id2node_Cache != null )
-            id2node_Cache.put(id, node) ;
         // Remove if previously marked "not present"
         if ( notPresent != null && notPresent.contains(node) )
             notPresent.remove(node) ;
+
+        if ( node2id_Cache != null )
+            node2id_Cache.put(node, id) ;
+
+        if ( id2node_Cache != null )
+            id2node_Cache.put(id, node) ;
     }
     // ----
 
@@ -190,19 +185,16 @@ public class NodeTableCache implements NodeTable
     @Override
     public boolean isEmpty()
     {
-        synchronized (lock)
-        {
-            if ( node2id_Cache != null )
-                return node2id_Cache.isEmpty() ;
-            if ( id2node_Cache != null )
-                id2node_Cache.isEmpty() ;
-            // Write through.
-            return baseTable.isEmpty() ;
-        }
+    	if ( node2id_Cache != null )
+    		return node2id_Cache.isEmpty() ;
+    	if ( id2node_Cache != null )
+    		id2node_Cache.isEmpty() ;
+    	// Write through.
+    	return baseTable.isEmpty() ;
     }
 
     @Override
-    public synchronized void close()
+    public void close()
     {
         if ( baseTable == null )
             // Already closed (NodeTables can be shared so .close via two routes).

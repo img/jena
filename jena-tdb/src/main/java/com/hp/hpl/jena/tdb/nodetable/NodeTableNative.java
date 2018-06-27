@@ -22,6 +22,8 @@ import static com.hp.hpl.jena.tdb.lib.NodeLib.setHash ;
 
 import java.nio.ByteBuffer ;
 import java.util.Iterator ;
+import java.util.concurrent.locks.ReadWriteLock;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 import org.openjena.atlas.iterator.Iter ;
 import org.openjena.atlas.iterator.Transform ;
@@ -35,6 +37,7 @@ import com.hp.hpl.jena.tdb.index.Index ;
 import com.hp.hpl.jena.tdb.lib.NodeLib ;
 import com.hp.hpl.jena.tdb.store.Hash ;
 import com.hp.hpl.jena.tdb.store.NodeId ;
+import com.hp.hpl.jena.tdb.nodetable.RWLock.Mode;
 
 /** A concrete NodeTable based on native storage (string file and an index) */ 
 public class NodeTableNative implements NodeTable
@@ -48,6 +51,7 @@ public class NodeTableNative implements NodeTable
     protected ObjectFile objects ;
     protected Index nodeHashToId ;        // hash -> int
     private boolean syncNeeded = false ;
+	private ReadWriteLock lock;
     
     // Delayed construction - must call init explicitly.
     protected NodeTableNative() {}
@@ -63,6 +67,7 @@ public class NodeTableNative implements NodeTable
     {
         this.nodeHashToId = nodeToId ;
         this.objects = objectFile;
+        this.lock = new ReentrantReadWriteLock(true);
     }
 
     // ---- Public interface for Node <==> NodeId
@@ -86,10 +91,6 @@ public class NodeTableNative implements NodeTable
     // Synchronization:
     // accesIndex and readNodeFromTable
     
-    // Cache around this class further out in NodeTableCache are synchronized
-    // to maintain cache validatity which indirectly sync access to the NodeTable.
-    // But to be sure, we provide MRSW guarantees on this class.
-    // (otherwise if no cache => disaster)
     // synchonization happens in accessIndex() and readNodeByNodeId
     
     // NodeId to Node worker.
@@ -118,16 +119,15 @@ public class NodeTableNative implements NodeTable
         return nodeId ;
     }
     
-    protected final NodeId accessIndex(Node node, boolean create)
+    protected final NodeId accessIndex(Node node, final boolean create)
     {
         Hash hash = new Hash(nodeHashToId.getRecordFactory().keyLength()) ;
         setHash(hash, node) ;
         byte k[] = hash.getBytes() ;        
         // Key only.
         Record r = nodeHashToId.getRecordFactory().create(k) ;
-        
-        synchronized (this)  // Pair to readNodeFromTable.
-        {
+        try (RWLock ntl = RWLock.create(lock, create ? Mode.WRITE : Mode.READ)) {
+        	// what % of creates require an allocate?
             // Key and value, or null
             Record r2 = nodeHashToId.find(r) ;
             if ( r2 != null )
@@ -151,7 +151,9 @@ public class NodeTableNative implements NodeTable
             if ( ! nodeHashToId.add(r) )
                 throw new TDBException("NodeTableBase::nodeToId - record mysteriously appeared") ;
             return id ;
-        }
+        } catch (Exception e) {
+        	throw new TDBException("Problem with NodeTableLock", e);
+		}
     }
     
     // -------- NodeId<->Node
@@ -171,29 +173,35 @@ public class NodeTableNative implements NodeTable
 
     private final Node readNodeFromTable(NodeId id)
     {
-        synchronized (this) // Pair to accessIndex
-        {
-            if ( id.getId() >= getObjects().length() )
-                return null ;
-            return NodeLib.fetchDecode(id.getId(), getObjects()) ;
-        }
+    	try (RWLock ntl = RWLock.create(lock, Mode.READ)) {
+    		if ( id.getId() >= getObjects().length() ) {
+    			return null ;
+    		}
+    		return NodeLib.fetchDecode(id.getId(), getObjects()) ;
+    	} catch (Exception e) {
+    		throw new TDBException("Problem with NodeTableLock", e);
+		}
     }
     // -------- NodeId<->Node
 
     @Override
-    public synchronized void close()
+    public void close()
     {
-        // Close once.  This may be shared (e.g. triples table and quads table). 
-        if ( nodeHashToId != null )
-        {
-            nodeHashToId.close() ;
-            nodeHashToId = null ;
-        }
-        if ( getObjects() != null )
-        {
-            getObjects().close() ;
-            objects = null ;
-        }
+    	try (RWLock ntl = RWLock.create(lock, Mode.WRITE)) {
+    		// Close once.  This may be shared (e.g. triples table and quads table). 
+    		if ( nodeHashToId != null )
+    		{
+    			nodeHashToId.close() ;
+    			nodeHashToId = null ;
+    		}
+    		if ( getObjects() != null )
+    		{
+    			getObjects().close() ;
+    			objects = null ;
+    		}
+    	} catch (Exception e) {
+    		throw new TDBException("Problem with NodeTableLock", e);
+		}
     }
 
     @Override
@@ -264,6 +272,10 @@ public class NodeTableNative implements NodeTable
     @Override
     public boolean isEmpty()
     {
-        return getObjects().isEmpty() ;
+    	try (RWLock ntl = RWLock.create(lock, Mode.READ)) {
+    		return getObjects().isEmpty() ;
+    	} catch (Exception e) {
+    		throw new TDBException("Problem with NodeTableLock", e);
+		}
     }
 }
