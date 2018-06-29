@@ -41,9 +41,14 @@ import org.slf4j.LoggerFactory ;
 
 import com.hp.hpl.jena.query.ReadWrite ;
 import com.hp.hpl.jena.shared.Lock ;
+import com.hp.hpl.jena.tdb.nodetable.NodeTable;
+import com.hp.hpl.jena.tdb.nodetable.NodeTableCache;
+import com.hp.hpl.jena.tdb.nodetable.NodeTableInline;
+import com.hp.hpl.jena.tdb.nodetable.NodeTableWrapper;
 import com.hp.hpl.jena.tdb.store.DatasetGraphTDB ;
 import com.hp.hpl.jena.tdb.sys.SystemTDB ;
 
+@SuppressWarnings("nls")
 public class TransactionManager
 {
     private static boolean checking = true ;
@@ -335,7 +340,10 @@ public class TransactionManager
         if ( ! commitedAwaitingFlush.isEmpty() )
         {  
             if ( DEBUG ) System.out.print(commitedAwaitingFlush.size()) ;
+            log.debug("commitedAwaitingFlush=" + commitedAwaitingFlush.size());
             dsg = commitedAwaitingFlush.get(commitedAwaitingFlush.size()-1).getActiveDataset().getView() ;
+            final int countLayers = countLayers(dsg.getQuadTable().getNodeTupleTable().getNodeTable());
+            log.debug("countLayers=" + countLayers);
         }
         else 
         {
@@ -366,7 +374,21 @@ public class TransactionManager
         return dsgTxn ;
     }
 
-    private Transaction createTransaction(DatasetGraphTDB dsg, ReadWrite mode, String label)
+    private int countLayers(NodeTable nodeTable) {
+		int count = 0;
+		while (null != nodeTable) {
+			count++;
+			if (nodeTable instanceof NodeTableTrans) {
+				nodeTable = ((NodeTableTrans)nodeTable).getBaseNodeTable();
+			} else if (nodeTable instanceof NodeTableWrapper) {
+				nodeTable = ((NodeTableWrapper)nodeTable).getWrapped();
+			} else {
+				nodeTable = null;				
+			}
+		}
+		return count;
+	}
+	private Transaction createTransaction(DatasetGraphTDB dsg, ReadWrite mode, String label)
     {
         Transaction txn = new Transaction(dsg, mode, transactionId.getAndIncrement(), label, this) ;
         return txn ;
@@ -386,11 +408,17 @@ public class TransactionManager
             {
                 // No components so we don't need to notify them.
                 // We can just reuse the storage dataset.
+            	final int countLayers = countLayers(dsgCached.getQuadTable().getNodeTupleTable().getNodeTable());
+            	log.debug("Using currentReaderView.  countLayers=" + countLayers);
                 return new DatasetGraphTxn(dsgCached, txn) ;
+            } else {
+            	log.debug("There is no currentReaderView.  Building a new one");
             }
         }
         
         DatasetGraphTxn dsgTxn = new DatasetBuilderTxn(this).build(txn, mode, dsg) ;
+    	final int countLayers = countLayers(dsg.getQuadTable().getNodeTupleTable().getNodeTable());
+    	log.debug("New DSGTxn built.  countLayers=" + countLayers);
         if ( mode == ReadWrite.READ )
         {
             // If a READ transaction, cache the storage view.
@@ -508,7 +536,7 @@ public class TransactionManager
         if ( activeReaders.get() != 0 || activeWriters.get() != 0 )
         {
             if ( queue.size() > 0 && log() )
-                log(format("Pending transactions: R=%s / W=%s", activeReaders, activeWriters), txn) ;
+                log(format("Pending transactions: R=%s / W=%s;  maxSize=%d", activeReaders, activeWriters, maxQueue), txn) ;
             return ;
         }
 

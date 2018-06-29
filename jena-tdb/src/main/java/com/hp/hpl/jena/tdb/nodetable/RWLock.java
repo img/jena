@@ -3,7 +3,7 @@ package com.hp.hpl.jena.tdb.nodetable;
 import java.util.concurrent.locks.ReadWriteLock;
 
 public class RWLock implements AutoCloseable {
-	enum Mode { READ, WRITE };
+	public enum Mode { READ, WRITE };
 	final private ReadWriteLock l;
 	final private Mode mode;
 

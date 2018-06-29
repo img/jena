@@ -77,4 +77,8 @@ public class NodeTableWrapper implements NodeTable
     @Override
     public void close()
     { nodeTable.close() ; }
+    
+    public NodeTable getWrapped() {
+    	return nodeTable;
+    }
 }

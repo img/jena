@@ -62,7 +62,7 @@ public class NodeTableTrans implements NodeTable, TransactionLifecycle
     public NodeTableTrans(Transaction txn, String label, NodeTable sub, Index nodeIndex, ObjectFile objFile)
     {
         this.txn = txn ;
-        this.base = sub ;
+        this.base = getBaseNodeTable(sub) ;
         this.nodeIndex = nodeIndex ;
         this.journalObjFile = objFile ;
         // Clear bytes from an old run
@@ -73,7 +73,24 @@ public class NodeTableTrans implements NodeTable, TransactionLifecycle
         this.label = label ; 
     }
 
-    public void setPassthrough(boolean v)   { passthrough = v ; }
+    private NodeTable getBaseNodeTable(NodeTable sub) {
+    	int count=0;
+		while (sub instanceof NodeTableTrans || sub instanceof NodeTableInline) {
+			count++;
+			if (sub instanceof NodeTableTrans) {
+				sub = ((NodeTableTrans)sub).base;
+			} else if (sub instanceof NodeTableInline) {
+				sub = ((NodeTableInline)sub).getWrapped();
+			}
+		}
+		if (count != 0) {
+			log.debug("Collapsed " + count + " layers");
+			System.out.println("Collapsed " + count + " layers");
+		}
+		return NodeTableInline.create(sub);
+	}
+
+	public void setPassthrough(boolean v)   { passthrough = v ; }
     public NodeTable getBaseNodeTable()     { return base ; }
     public NodeTable getJournalTable()      { return nodeTableJournal ; }
     public Transaction getTransaction()     { return txn ; }
