@@ -21,13 +21,10 @@ package com.hp.hpl.jena.tdb.base.objectfile;
 import static com.hp.hpl.jena.tdb.base.BufferTestLib.sameValue ;
 
 import java.nio.ByteBuffer ;
-
 import org.junit.After ;
 import org.junit.Before ;
 import org.junit.Test ;
-import org.openjena.atlas.junit.BaseTest ;
-
-import com.hp.hpl.jena.tdb.base.block.Block ;
+import org.openjena.atlas.junit.BaseTest;
 
 public abstract class AbstractTestObjectFile extends BaseTest
 {
@@ -35,26 +32,12 @@ public abstract class AbstractTestObjectFile extends BaseTest
 
     @Before public void before() { file = make() ; }
     @After public void after() { release(file); }
+
+    // Test 02 and 04 were for alloc-write.
     
     @Test public void objectfile_01()
     {
-
         assertEquals(0, file.length()) ;
-    }
-
-    @Test public void objectfile_02()
-    {
-        Block block = file.allocWrite(10) ;
-        fill(block.getByteBuffer()) ;
-        file.completeWrite(block) ;
-        long x1 = block.getId() ;
-        assertEquals(0, x1) ;
-        
-        ByteBuffer bb = file.read(x1) ;
-        
-        // position
-        
-        assertTrue(sameValue(block.getByteBuffer(), bb)) ;
     }
 
     @Test public void objectfile_03()
@@ -63,22 +46,6 @@ public abstract class AbstractTestObjectFile extends BaseTest
         fill(bb) ;
         long x1 = file.write(bb) ;
         assertEquals(0, x1) ;
-    }
-
-    @Test public void objectfile_04()
-    {
-        Block block1 = file.allocWrite(10) ;
-        fill(block1.getByteBuffer()) ;
-        file.completeWrite(block1) ;
-        
-        Block block2 = file.allocWrite(20) ;
-        fill(block2.getByteBuffer()) ;
-        file.completeWrite(block2) ;
-        
-        long x1 = block1.getId() ;
-        long x2 = block2.getId() ;
-        
-        assertFalse(x1 == x2) ;
     }
 
     @Test public void objectfile_05()

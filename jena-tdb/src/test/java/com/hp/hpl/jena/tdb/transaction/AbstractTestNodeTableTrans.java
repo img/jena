@@ -59,7 +59,8 @@ public abstract class AbstractTestNodeTableTrans extends BaseTest
     protected static Node node1 = NodeFactory.parseNode("<x>") ;
     protected static Node node2 = NodeFactory.parseNode("<y>") ;
     protected static Node node3 = NodeFactory.parseNode("<z>") ;
-
+    protected static Node literal1 = NodeFactory.intToNode(666);
+    
     static void contains(NodeTable nt, Node...nodes)
     {
         for ( Node n : nodes)
@@ -106,6 +107,41 @@ public abstract class AbstractTestNodeTableTrans extends BaseTest
         ntt.commitClearup(txn) ;
     }
 
+    @Test public void nodetrans_02_literal()
+    {
+        Transaction txn = createTxn(11) ; 
+        NodeTableTrans ntt = create(txn) ;
+        NodeTable nt0 = ntt.getBaseNodeTable() ;
+        
+        ntt.begin(txn) ;
+        // Add a node
+        NodeId nodeId = ntt.getAllocateNodeId(node1) ;
+        NodeId literalId= ntt.getAllocateNodeId(literal1);
+        NodeId node2Id = ntt.getAllocateNodeId(node2) ;
+        
+        // Check not in the base.
+        assertNull(nt0.getNodeForNodeId(nodeId)) ;
+
+        
+        // literals are always there
+        assertNotNull(nt0.getNodeForNodeId(literalId)) ;
+        // Check is in the transaction node table.
+        assertEquals(NodeId.NodeDoesNotExist, nt0.getNodeIdForNode(node1)) ;
+        //assertEquals(NodeId.NodeDoesNotExist, nt0.getNodeIdForNode(literal1)) ;
+        assertEquals(node1, ntt.getNodeForNodeId(nodeId)) ;
+        assertEquals(literal1, ntt.getNodeForNodeId(literalId)) ;
+        
+        ntt.commitPrepare(txn) ;
+        ntt.commitEnact(txn) ;
+        // Check it is now in the base.
+        assertEquals(node1, nt0.getNodeForNodeId(nodeId)) ;
+        assertEquals(nodeId, nt0.getNodeIdForNode(node1)) ;
+        assertEquals(literal1, nt0.getNodeForNodeId(literalId)) ;
+        assertEquals(literalId, nt0.getNodeIdForNode(literal1)) ;
+        ntt.commitClearup(txn) ;
+    }
+
+    
     @Test public void nodetrans_03()
     {
         Transaction txn = createTxn(11) ; 

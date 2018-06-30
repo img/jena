@@ -49,11 +49,12 @@ public class StringFile implements Sync, Closeable
     public long write(String str)
     { 
         str = compress(str) ;
-        Block block = file.allocWrite(4*str.length()) ;
-        int len = Bytes.toByteBuffer(str, block.getByteBuffer()) ;
-        block.getByteBuffer().flip() ;
-        file.completeWrite(block) ;
-        return block.getId() ;
+        
+        ByteBuffer bb = ByteBuffer.allocate(4*str.length());
+        int len = Bytes.toByteBuffer(str, bb) ;
+        bb.flip() ;
+        long x = file.write(bb) ;
+        return x;
     }
     
     public String read(long id)

@@ -83,9 +83,8 @@ public class NodeTableTrans implements NodeTable, TransactionLifecycle
 				sub = ((NodeTableInline)sub).getWrapped();
 			}
 		}
-		if (count != 0) {
+		if (log.isDebugEnabled()) {
 			log.debug("Collapsed " + count + " layers");
-			System.out.println("Collapsed " + count + " layers");
 		}
 		return NodeTableInline.create(sub);
 	}

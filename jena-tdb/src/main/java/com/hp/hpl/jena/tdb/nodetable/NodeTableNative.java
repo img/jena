@@ -46,7 +46,7 @@ public class NodeTableNative implements NodeTable
     // Abstracts the getAllocateNodeId requirements.
     
     // Assumes an StringFile and an Indexer, which may be an Index but allows
-    // this to be overriden for a direct use of BDB.
+    // this to be overridden for a direct use of BDB.
 
     protected ObjectFile objects ;
     protected Index nodeHashToId ;        // hash -> int
@@ -165,7 +165,7 @@ public class NodeTableNative implements NodeTable
     private final NodeId writeNodeToTable(Node node)
     {
         syncNeeded = true ;
-        // Synchronized in accessIndex
+        // Synchronized in accessIndex.  Single thread in getObjects.write and encodeStore
         long x = NodeLib.encodeStore(node, getObjects()) ;
         return NodeId.create(x);
     }
@@ -272,10 +272,6 @@ public class NodeTableNative implements NodeTable
     @Override
     public boolean isEmpty()
     {
-    	try (RWLock ntl = RWLock.create(lock, Mode.READ)) {
-    		return getObjects().isEmpty() ;
-    	} catch (Exception e) {
-    		throw new TDBException("Problem with NodeTableLock", e);
-		}
+    	return getObjects().isEmpty() ;
     }
 }

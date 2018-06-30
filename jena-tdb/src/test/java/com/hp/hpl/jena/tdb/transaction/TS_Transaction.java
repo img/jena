@@ -29,8 +29,6 @@ import org.junit.runners.Suite ;
 @Suite.SuiteClasses( {
       TestJournal.class
     , TestTransIterator.class
-    , TestObjectFileTransMem.class
-    , TestObjectFileTransStorage.class
     , TestNodeTableTransMem.class
     , TestNodeTableTransDisk.class
     , TestTransMem.class

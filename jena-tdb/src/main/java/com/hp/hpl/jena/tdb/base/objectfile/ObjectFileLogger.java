@@ -42,28 +42,6 @@ public class ObjectFileLogger implements ObjectFile
     }
 
     @Override
-    public Block allocWrite(int maxBytes)
-    {
-        Block blk = other.allocWrite(maxBytes) ;
-        info("allocWrite("+maxBytes+") -> "+blk.getId()) ;
-        return blk ;
-    }
-
-    @Override
-    public void completeWrite(Block buffer)
-    {
-        info("completeWrite("+buffer.getId()+")") ;
-        other.completeWrite(buffer) ;
-    }
-
-    @Override
-    public void abortWrite(Block buffer)
-    {
-        info("abortWrite("+buffer.getId()+")") ;
-        other.abortWrite(buffer) ;
-    }
-
-    @Override
     public long write(ByteBuffer buffer)
     {
         info("write"+buffer) ;

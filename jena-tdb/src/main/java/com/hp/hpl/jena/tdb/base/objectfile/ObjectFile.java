@@ -36,17 +36,8 @@ public interface ObjectFile extends Sync, Closeable
 {
     public static final String type = "object" ;
     
-    /** A label to identify this ObjectFile - like toString, except it must be implemented */ 
+    /** A label to identify this ObjectFile */ 
     public String getLabel() ;
-    
-    /** Allocate space for a write - pass this buffer to completeWrite */ 
-    public Block allocWrite(int bytesSpace) ;
-    
-    /** Announce that a write is complete (buffer must come from allocWrite) */
-    public void completeWrite(Block buffer) ;
-
-    /** Decide not to perform the write */
-    public void abortWrite(Block buffer) ;
 
     /** Write out the buffer - return the accessor number */ 
     public long write(ByteBuffer buffer) ;
@@ -62,17 +53,13 @@ public interface ObjectFile extends Sync, Closeable
 
     /** Reset the "append" point; may only be moved earlier.
      * The new position must correspond to a position returned by
-     * {@link #write(ByteBuffer)} or an id in a {@link Block Block} from {@link #completeWrite(Block)}
+     * {@link #write(ByteBuffer)}.
      */
     public void reposition(long id) ;
     
-    /** 
-     */
+    /** Truncate the file */
     public void truncate(long size) ;
 
-    /** All the bytebuffers - debugging aid */
+    /** All the contents as ByteBuffers - debugging aid */
     public Iterator<Pair<Long, ByteBuffer>> all() ;
-    
-//    /** return a useful short display string */ 
-//    public String getLabel() ;
 }
