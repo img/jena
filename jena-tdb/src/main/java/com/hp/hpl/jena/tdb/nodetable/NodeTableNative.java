@@ -51,10 +51,12 @@ public class NodeTableNative implements NodeTable
     protected ObjectFile objects ;
     protected Index nodeHashToId ;        // hash -> int
     private boolean syncNeeded = false ;
-	private ReadWriteLock lock;
+	final private ReadWriteLock lock;
     
     // Delayed construction - must call init explicitly.
-    protected NodeTableNative() {}
+    protected NodeTableNative() {
+        this.lock = new ReentrantReadWriteLock(true);
+    }
     
     // Combined into one constructor.
     public NodeTableNative(Index nodeToId, ObjectFile objectFile)
@@ -67,7 +69,6 @@ public class NodeTableNative implements NodeTable
     {
         this.nodeHashToId = nodeToId ;
         this.objects = objectFile;
-        this.lock = new ReentrantReadWriteLock(true);
     }
 
     // ---- Public interface for Node <==> NodeId
@@ -151,6 +152,8 @@ public class NodeTableNative implements NodeTable
             if ( ! nodeHashToId.add(r) )
                 throw new TDBException("NodeTableBase::nodeToId - record mysteriously appeared") ;
             return id ;
+        } catch (TDBException e) {
+        	throw e;
         } catch (Exception e) {
         	throw new TDBException("Problem with NodeTableLock", e);
 		}
@@ -178,7 +181,9 @@ public class NodeTableNative implements NodeTable
     			return null ;
     		}
     		return NodeLib.fetchDecode(id.getId(), getObjects()) ;
-    	} catch (Exception e) {
+    	} catch (TDBException e) {
+        	throw e;
+        } catch (Exception e) {
     		throw new TDBException("Problem with NodeTableLock", e);
 		}
     }
@@ -199,7 +204,9 @@ public class NodeTableNative implements NodeTable
     			getObjects().close() ;
     			objects = null ;
     		}
-    	} catch (Exception e) {
+    	} catch (TDBException e) {
+        	throw e;
+        } catch (Exception e) {
     		throw new TDBException("Problem with NodeTableLock", e);
 		}
     }

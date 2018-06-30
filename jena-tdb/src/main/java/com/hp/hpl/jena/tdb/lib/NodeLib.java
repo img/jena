@@ -53,24 +53,29 @@ public class NodeLib
     // Characters in IRIs that are illegal and cause SSE problems, but we wish to keep.
     final private static char MarkerChar = '_' ;
     final private static char[] invalidIRIChars = { MarkerChar , ' ' } ; 
-    
-    public static long encodeStore(Node node, ObjectFile file)
-    {
-        // Buffer pool?
-        
-        // Nodes can be writtern during reads.
-        // Make sure this operation is sync'ed. 
-        int maxSize = nodec.maxSize(node) ;
-        Block block = file.allocWrite(maxSize) ;
-        try {
-            int len = nodec.encode(node, block.getByteBuffer(), null) ;
-            file.completeWrite(block) ;
-            return block.getId() ;
-        } catch (TDBException ex)
-        {
-            file.abortWrite(block) ;
-            throw ex ;
-        }
+    final private static int SIZE = 1024;
+
+    // This buffer is used in encodeStore in a single threaded fashion.
+    // Callers of encodeStore must ensure writing is not concurrent.
+    final private static ByteBuffer workspace = ByteBuffer.allocate(SIZE);
+
+    /**
+     * Encode and write a {@link Node} to the {@link ObjectFile}. Returns the location,
+     * suitable for use with {@link #fetchDecode}.
+     * <p>
+     * Callers must synchronize to ensure writing is not concurrent.
+     */
+    public static long encodeStore(Node node, ObjectFile file) {
+        int maxSize = nodec.maxSize(node);
+        ByteBuffer bb = workspace;
+        if ( maxSize >= SIZE )
+            // Large object. Special buffer.
+            bb = ByteBuffer.allocate(maxSize);
+        else
+            bb.clear();
+        int len = nodec.encode(node, bb, null);
+        long x = file.write(bb);
+        return x;
     }
     
     public static Node fetchDecode(long id, ObjectFile file)
