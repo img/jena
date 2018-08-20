@@ -41,7 +41,6 @@ public class BlockMgrJournal implements BlockMgr, TransactionLifecycle
     private Transaction transaction ;
     private FileRef fileRef ;
     
-    final private Set<Long> iteratorBlocks = new HashSet<Long>() ;
     final private Map<Long, Block> writeBlocks = new HashMap<Long, Block>() ;
     final private Map<Long, Block> freedBlocks = new HashMap<Long, Block>() ;
     private boolean closed  = false ;
@@ -103,7 +102,6 @@ public class BlockMgrJournal implements BlockMgr, TransactionLifecycle
     private void clear(Transaction txn)
     {
         this.transaction = txn ;
-        this.iteratorBlocks.clear() ;
         this.writeBlocks.clear() ;
         this.freedBlocks.clear() ;
     }
@@ -146,8 +144,6 @@ public class BlockMgrJournal implements BlockMgr, TransactionLifecycle
             block = blockMgr.getReadIterator(id) ;
         if ( block == null )
             throw new BlockException("No such block: "+getLabel()+" "+id) ;
-        if ( active ) 
-            iteratorBlocks.add(block.getId()) ;
         return block ;
     }
 
@@ -310,7 +306,6 @@ public class BlockMgrJournal implements BlockMgr, TransactionLifecycle
     {
         Log.info(this, "state: "+getLabel()) ;
         Log.info(this, "  writeBlocks:     "+writeBlocks) ;
-        Log.info(this, "  iteratorBlocks:  "+iteratorBlocks) ;
         Log.info(this, "  freedBlocks:     "+freedBlocks) ;
     }
     
