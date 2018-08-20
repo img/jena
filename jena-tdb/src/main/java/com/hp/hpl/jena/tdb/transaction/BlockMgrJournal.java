@@ -41,7 +41,6 @@ public class BlockMgrJournal implements BlockMgr, TransactionLifecycle
     private Transaction transaction ;
     private FileRef fileRef ;
     
-    final private Set<Long> readBlocks = new HashSet<Long>() ;
     final private Set<Long> iteratorBlocks = new HashSet<Long>() ;
     final private Map<Long, Block> writeBlocks = new HashMap<Long, Block>() ;
     final private Map<Long, Block> freedBlocks = new HashMap<Long, Block>() ;
@@ -104,7 +103,6 @@ public class BlockMgrJournal implements BlockMgr, TransactionLifecycle
     private void clear(Transaction txn)
     {
         this.transaction = txn ;
-        this.readBlocks.clear() ;
         this.iteratorBlocks.clear() ;
         this.writeBlocks.clear() ;
         this.freedBlocks.clear() ;
@@ -135,8 +133,6 @@ public class BlockMgrJournal implements BlockMgr, TransactionLifecycle
         if ( block != null )
             return block ;
         block = blockMgr.getRead(id) ;
-        if ( active ) 
-            readBlocks.add(block.getId()) ;
         return block ;
     }
 
@@ -313,7 +309,6 @@ public class BlockMgrJournal implements BlockMgr, TransactionLifecycle
     private void logState()
     {
         Log.info(this, "state: "+getLabel()) ;
-        Log.info(this, "  readBlocks:      "+readBlocks) ;
         Log.info(this, "  writeBlocks:     "+writeBlocks) ;
         Log.info(this, "  iteratorBlocks:  "+iteratorBlocks) ;
         Log.info(this, "  freedBlocks:     "+freedBlocks) ;
