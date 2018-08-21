@@ -22,7 +22,10 @@ import java.util.HashMap ;
 import java.util.HashSet ;
 import java.util.Iterator ;
 import java.util.Map ;
+import java.util.Map.Entry;
 import java.util.Set ;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
 
 import org.openjena.atlas.logging.Log ;
 import org.slf4j.Logger ;
@@ -45,13 +48,17 @@ public class BlockMgrJournal implements BlockMgr, TransactionLifecycle
     final private Map<Long, Block> freedBlocks = new HashMap<Long, Block>() ;
     private boolean closed  = false ;
     private boolean active  = false ;   // In a transaction, or preparing.
-    
+	private BlockMgr firstNonBMJ;
+	private ConcurrentMap<Long, Block> aggregateWriteBlocks;
+	
     public BlockMgrJournal(Transaction txn, FileRef fileRef, BlockMgr underlyingBlockMgr)
     {
         reset(txn, fileRef, underlyingBlockMgr) ;
         if ( txn.getMode() == ReadWrite.READ &&  underlyingBlockMgr instanceof BlockMgrJournal )
             System.err.println("Two level BlockMgrJournal") ;
     }
+    
+    
 
     @Override
     public void begin(Transaction txn)
@@ -96,10 +103,33 @@ public class BlockMgrJournal implements BlockMgr, TransactionLifecycle
         this.fileRef = fileRef ;
         this.blockMgr = underlyingBlockMgr ;
         this.active = true ;
+        this.firstNonBMJ = getFirstNonBlockMgrJournal();
+        if (underlyingBlockMgr instanceof BlockMgrJournal) {
+        	// share with below
+        	this.aggregateWriteBlocks = ((BlockMgrJournal)underlyingBlockMgr).aggregateWriteBlocks;        	
+        	// update with that delta
+        	for (Entry<Long, Block> e : ((BlockMgrJournal)underlyingBlockMgr).writeBlocks.entrySet()) {
+        		this.aggregateWriteBlocks.put(e.getKey(), e.getValue());
+        	}
+        } else {
+        	this.aggregateWriteBlocks = new ConcurrentHashMap<>();
+        }
         clear(txn) ;
     }
     
-    private void clear(Transaction txn)
+    private BlockMgr getFirstNonBlockMgrJournal() {
+    	BlockMgr bmj = blockMgr;
+    	while (bmj instanceof BlockMgrJournal) {
+    		if (bmj.isClosed()) {
+    			System.err.println("img: wasnt expecting a closed BMJ here");
+    		}
+    		bmj = ((BlockMgrJournal)bmj).blockMgr;
+    	}
+    	return bmj;
+	}
+    
+
+	private void clear(Transaction txn)
     {
         this.transaction = txn ;
         this.writeBlocks.clear() ;
@@ -112,7 +142,7 @@ public class BlockMgrJournal implements BlockMgr, TransactionLifecycle
         checkIfClosed() ;
         // Might as well allocate now. 
         // This allocates the id.
-        Block block = blockMgr.allocate(blockSize) ;
+        Block block = firstNonBMJ.allocate(blockSize) ;
         // [TxTDB:TODO]
         // But we "copy" it by allocating ByteBuffer space.
         if ( active ) 
@@ -126,12 +156,32 @@ public class BlockMgrJournal implements BlockMgr, TransactionLifecycle
     @Override
     public Block getRead(long id)
     {
+    	return getRead_cached(id);
+    }
+    
+    public Block getRead_cached(long id)
+    {
         checkIfClosed() ;
         Block block = localBlock(id) ;
         if ( block != null )
             return block ;
         block = blockMgr.getRead(id) ;
         return block ;
+    }
+    
+    
+    private Block getRead_slow(long id)
+    {
+        checkIfClosed() ;
+        Block block = localBlock(id) ;
+        if ( block != null )
+            return block ;
+        block = aggregateWriteBlocks.get(id);
+        if (null != block) {
+        	return block;
+        } else {
+        	return firstNonBMJ.getRead(id);
+        }
     }
 
     @Override
@@ -140,11 +190,18 @@ public class BlockMgrJournal implements BlockMgr, TransactionLifecycle
         //logState() ;
         checkIfClosed() ;
         Block block = localBlock(id) ;
-        if ( block == null )
-            block = blockMgr.getReadIterator(id) ;
-        if ( block == null )
-            throw new BlockException("No such block: "+getLabel()+" "+id) ;
-        return block ;
+        if ( block == null ) {
+        	block = aggregateWriteBlocks.get(id) ;
+        }
+        if (null != block) {
+        	return block;
+        } else {
+        	block = firstNonBMJ.getReadIterator(id);
+        	if (null == block) {
+        		throw new BlockException("No such block: "+getLabel()+" "+id) ;
+        	}
+        	return block ;
+        }
     }
 
     @Override
@@ -159,7 +216,8 @@ public class BlockMgrJournal implements BlockMgr, TransactionLifecycle
             return block ;
         
         // Get-as-read.
-        block = blockMgr.getRead(id) ;
+        //block = blockMgr.getRead(id) ;
+        block = getRead(id);  // repeats the localBlock code
         // If most blocks get modified, then a copy is needed
         // anyway so now is as good a time as any.
         block = _promote(block) ;
@@ -195,8 +253,12 @@ public class BlockMgrJournal implements BlockMgr, TransactionLifecycle
         checkIfClosed() ;
         Long id = block.getId() ;
         // Only release unchanged blocks.
-        if ( ! writeBlocks.containsKey(id))
-            blockMgr.release(block) ;
+        if (writeBlocks.containsKey(id)
+        		|| aggregateWriteBlocks.containsKey(id)) {
+        	return;
+        } else {
+            firstNonBMJ.release(block) ;
+        }
     }
 
     @Override
@@ -220,7 +282,7 @@ public class BlockMgrJournal implements BlockMgr, TransactionLifecycle
     public void overwrite(Block block)
     {
         // We are in a chain of BlockMgrs - pass down to the base.
-        blockMgr.overwrite(block) ;
+    	firstNonBMJ.overwrite(block) ;
     }
 
     @Override
@@ -234,11 +296,30 @@ public class BlockMgrJournal implements BlockMgr, TransactionLifecycle
     public boolean isEmpty()
     {
         checkIfClosed() ;
-        return writeBlocks.isEmpty() && blockMgr.isEmpty() ;
+        return writeBlocks.isEmpty() && aggregateWriteBlocks.isEmpty() && firstNonBMJ.isEmpty();
     }
 
     @Override
+
     public boolean valid(int id)
+    {
+        return valid_cached(id);
+    }
+    
+    private boolean valid_cached(int id)
+    {
+        checkIfClosed() ;
+        if ( writeBlocks.containsKey(id) ) return true ;
+        Block b = aggregateWriteBlocks.get(id);
+        if (null != b) {
+        	return true;
+        } else {
+        	// check the validator
+        	return firstNonBMJ.valid(id);
+        }
+    }
+    
+    private boolean valid_slow(int id)
     {
         checkIfClosed() ;
         if ( writeBlocks.containsKey(id) ) return true ;
@@ -282,12 +363,15 @@ public class BlockMgrJournal implements BlockMgr, TransactionLifecycle
     @Override
     public void syncForce()
     {
-        blockMgr.syncForce() ;
+        firstNonBMJ.syncForce() ;
     }
 
     // we only use the underlying blockMgr in read-mode - we don't write back blocks.  
     @Override
-    public void beginUpdate()           { checkIfClosed() ; blockMgr.beginRead() ; }
+    public void beginUpdate() {
+    	checkIfClosed() ; 
+    	blockMgr.beginRead() ; 
+    }
 
     @Override
     public void endUpdate()
@@ -310,10 +394,16 @@ public class BlockMgrJournal implements BlockMgr, TransactionLifecycle
     }
     
     @Override
-    public void beginRead()             { checkIfClosed() ; blockMgr.beginRead() ; }
+    public void beginRead() { 
+    	checkIfClosed() ;
+    	firstNonBMJ.beginRead() ;
+    }
 
     @Override
-    public void endRead()               { checkIfClosed() ; blockMgr.endRead() ; }
+    public void endRead() {
+    	checkIfClosed() ; 
+    	firstNonBMJ.endRead() ;
+    }
 
     @Override
     public void beginIterator(Iterator<?> iterator)
