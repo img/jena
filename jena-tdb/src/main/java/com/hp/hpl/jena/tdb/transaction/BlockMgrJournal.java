@@ -45,7 +45,6 @@ public class BlockMgrJournal implements BlockMgr, TransactionLifecycle
     private FileRef fileRef ;
     
     final private Map<Long, Block> writeBlocks = new HashMap<Long, Block>() ;
-    final private Map<Long, Block> freedBlocks = new HashMap<Long, Block>() ;
     private boolean closed  = false ;
     private boolean active  = false ;   // In a transaction, or preparing.
 	private BlockMgr firstNonBMJ;
@@ -133,7 +132,6 @@ public class BlockMgrJournal implements BlockMgr, TransactionLifecycle
     {
         this.transaction = txn ;
         this.writeBlocks.clear() ;
-        this.freedBlocks.clear() ;
     }
                        
     @Override
@@ -159,7 +157,7 @@ public class BlockMgrJournal implements BlockMgr, TransactionLifecycle
     	return getRead_cached(id);
     }
     
-    public Block getRead_cached(long id)
+    public Block getRead_slow(long id)
     {
         checkIfClosed() ;
         Block block = localBlock(id) ;
@@ -170,7 +168,7 @@ public class BlockMgrJournal implements BlockMgr, TransactionLifecycle
     }
     
     
-    private Block getRead_slow(long id)
+    private Block getRead_cached(long id)
     {
         checkIfClosed() ;
         Block block = localBlock(id) ;
@@ -289,7 +287,6 @@ public class BlockMgrJournal implements BlockMgr, TransactionLifecycle
     public void free(Block block)
     {
         checkIfClosed() ;
-        freedBlocks.put(block.getId(), block) ;
     }
 
     @Override
@@ -390,7 +387,6 @@ public class BlockMgrJournal implements BlockMgr, TransactionLifecycle
     {
         Log.info(this, "state: "+getLabel()) ;
         Log.info(this, "  writeBlocks:     "+writeBlocks) ;
-        Log.info(this, "  freedBlocks:     "+freedBlocks) ;
     }
     
     @Override
