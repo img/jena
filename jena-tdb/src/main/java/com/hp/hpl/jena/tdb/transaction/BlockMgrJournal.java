@@ -19,11 +19,9 @@
 package com.hp.hpl.jena.tdb.transaction;
 
 import java.util.HashMap ;
-import java.util.HashSet ;
 import java.util.Iterator ;
 import java.util.Map ;
 import java.util.Map.Entry;
-import java.util.Set ;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 
@@ -48,13 +46,14 @@ public class BlockMgrJournal implements BlockMgr, TransactionLifecycle
     private boolean closed  = false ;
     private boolean active  = false ;   // In a transaction, or preparing.
 	private BlockMgr firstNonBMJ;
-	private ConcurrentMap<Long, Block> aggregateWriteBlocks;
+	private ConcurrentMap<Long, Block> aggregateWriteBlocks = new ConcurrentHashMap<>();
 	
     public BlockMgrJournal(Transaction txn, FileRef fileRef, BlockMgr underlyingBlockMgr)
     {
+    	log.debug("constructing BMJ with aggregating writeBlocks on " + fileRef.toString()); //$NON-NLS-1$
         reset(txn, fileRef, underlyingBlockMgr) ;
         if ( txn.getMode() == ReadWrite.READ &&  underlyingBlockMgr instanceof BlockMgrJournal )
-            System.err.println("Two level BlockMgrJournal") ;
+            System.err.println("Two level BlockMgrJournal") ; //$NON-NLS-1$
     }
     
     
@@ -72,12 +71,14 @@ public class BlockMgrJournal implements BlockMgr, TransactionLifecycle
         for ( Block blk : writeBlocks.values() )
             writeJournalEntry(blk) ;
         this.active = false ;
+        log.debug("commitPrepare"); //$NON-NLS-1$
     }
 
     @Override
     public void commitEnact(Transaction txn)
     {
         // No-op : this is done by playing the master journal.
+    	log.debug("commitEnact"); //$NON-NLS-1$
     }
 
     @Override
@@ -85,6 +86,7 @@ public class BlockMgrJournal implements BlockMgr, TransactionLifecycle
     {
         checkActive() ;
         this.active = false ;
+        log.debug("abort"); //$NON-NLS-1$
         // Do clearup of in-memory structures in clearup().
     }
     
@@ -93,6 +95,7 @@ public class BlockMgrJournal implements BlockMgr, TransactionLifecycle
     {
         // Persistent state is in the system journal.
         clear(txn) ;
+        log.debug("commitClearup"); //$NON-NLS-1$
     }
     
     /** Set, or reset, this BlockMgr.
@@ -103,24 +106,28 @@ public class BlockMgrJournal implements BlockMgr, TransactionLifecycle
         this.blockMgr = underlyingBlockMgr ;
         this.active = true ;
         this.firstNonBMJ = getFirstNonBlockMgrJournal();
+        clear(txn) ;
+        long delta = 0;
         if (underlyingBlockMgr instanceof BlockMgrJournal) {
-        	// share with below
-        	this.aggregateWriteBlocks = ((BlockMgrJournal)underlyingBlockMgr).aggregateWriteBlocks;        	
-        	// update with that delta
+        	// copy from below
+        	for (Entry<Long, Block> e : ((BlockMgrJournal)underlyingBlockMgr).aggregateWriteBlocks.entrySet()) {
+        		this.aggregateWriteBlocks.put(e.getKey(), e.getValue());
+        	}
+        	delta = ((BlockMgrJournal)underlyingBlockMgr).writeBlocks.size();
+        	// update with that delta. this CHM should be stable as the layers beneath are committed.
         	for (Entry<Long, Block> e : ((BlockMgrJournal)underlyingBlockMgr).writeBlocks.entrySet()) {
         		this.aggregateWriteBlocks.put(e.getKey(), e.getValue());
         	}
-        } else {
-        	this.aggregateWriteBlocks = new ConcurrentHashMap<>();
         }
-        clear(txn) ;
+        log.debug("aggregateWriteBlocks contains " + this.aggregateWriteBlocks.size() + " entries, of which " + delta + " are from previous layer"); //$NON-NLS-1$ //$NON-NLS-2$
+        log.debug("reset"); //$NON-NLS-1$
     }
     
     private BlockMgr getFirstNonBlockMgrJournal() {
     	BlockMgr bmj = blockMgr;
     	while (bmj instanceof BlockMgrJournal) {
     		if (bmj.isClosed()) {
-    			System.err.println("img: wasnt expecting a closed BMJ here");
+    			log.error("img: wasnt expecting a closed BMJ here"); //$NON-NLS-1$
     		}
     		bmj = ((BlockMgrJournal)bmj).blockMgr;
     	}
@@ -132,6 +139,7 @@ public class BlockMgrJournal implements BlockMgr, TransactionLifecycle
     {
         this.transaction = txn ;
         this.writeBlocks.clear() ;
+        log.debug("clear"); //$NON-NLS-1$
     }
                        
     @Override
@@ -176,13 +184,27 @@ public class BlockMgrJournal implements BlockMgr, TransactionLifecycle
             return block ;
         block = aggregateWriteBlocks.get(id);
         if (null != block) {
+        	logHit();
         	return block;
         } else {
+        	logMiss();
         	return firstNonBMJ.getRead(id);
         }
     }
 
-    @Override
+    private void logMiss() {
+		//log.debug("aggregate cache miss"); //$NON-NLS-1$
+	}
+
+
+
+	private void logHit() {
+		//log.debug("aggregate cache hit"); //$NON-NLS-1$
+	}
+
+
+
+	@Override
     public Block getReadIterator(long id)
     {
         //logState() ;
@@ -192,11 +214,13 @@ public class BlockMgrJournal implements BlockMgr, TransactionLifecycle
         	block = aggregateWriteBlocks.get(id) ;
         }
         if (null != block) {
+        	logHit();
         	return block;
         } else {
+        	logMiss();
         	block = firstNonBMJ.getReadIterator(id);
         	if (null == block) {
-        		throw new BlockException("No such block: "+getLabel()+" "+id) ;
+        		throw new BlockException("No such block: "+getLabel()+" "+id) ; //$NON-NLS-1$ //$NON-NLS-2$
         	}
         	return block ;
         }
@@ -253,8 +277,10 @@ public class BlockMgrJournal implements BlockMgr, TransactionLifecycle
         // Only release unchanged blocks.
         if (writeBlocks.containsKey(id)
         		|| aggregateWriteBlocks.containsKey(id)) {
+        	logHit(); // not quite
         	return;
         } else {
+        	logMiss();
             firstNonBMJ.release(block) ;
         }
     }
@@ -264,11 +290,11 @@ public class BlockMgrJournal implements BlockMgr, TransactionLifecycle
     {
         checkIfClosed() ;
         if ( ! block.isModified() )
-            Log.warn(this, "Page for block "+fileRef+"/"+block.getId()+" not modified") ;
+            Log.warn(this, "Page for block "+fileRef+"/"+block.getId()+" not modified") ; //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
         
         if ( ! writeBlocks.containsKey(block.getId()) )
         {
-            Log.warn(this, "Block not recognized: "+block.getId()) ;
+            Log.warn(this, "Block not recognized: "+block.getId()) ; //$NON-NLS-1$
             // Probably corruption by writing in-place.
             // but at least when this transaction commits,
             // the update data is written,
@@ -309,9 +335,10 @@ public class BlockMgrJournal implements BlockMgr, TransactionLifecycle
         if ( writeBlocks.containsKey(id) ) return true ;
         Block b = aggregateWriteBlocks.get(id);
         if (null != b) {
+        	logHit();
         	return true;
         } else {
-        	// check the validator
+        	logMiss();
         	return firstNonBMJ.valid(id);
         }
     }
@@ -338,16 +365,16 @@ public class BlockMgrJournal implements BlockMgr, TransactionLifecycle
     private void checkIfClosed()
     {
         if ( closed )
-            Log.fatal(this, "Already closed: "+transaction.getTxnId()) ;
+            Log.fatal(this, "Already closed: "+transaction.getTxnId()) ; //$NON-NLS-1$
     }
 
     private void checkActive()
     {
         if ( ! active )
-            Log.fatal(this, "Not active: "+transaction.getTxnId()) ;
+            Log.fatal(this, "Not active: "+transaction.getTxnId()) ; //$NON-NLS-1$
         TxnState state = transaction.getState() ; 
         if ( state != TxnState.ACTIVE && state != TxnState.PREPARING )
-            Log.fatal(this, "**** Not active: "+transaction.getTxnId()) ;
+            Log.fatal(this, "**** Not active: "+transaction.getTxnId()) ; //$NON-NLS-1$
     }
 
 
@@ -385,8 +412,8 @@ public class BlockMgrJournal implements BlockMgr, TransactionLifecycle
     
     private void logState()
     {
-        Log.info(this, "state: "+getLabel()) ;
-        Log.info(this, "  writeBlocks:     "+writeBlocks) ;
+        Log.info(this, "state: "+getLabel()) ; //$NON-NLS-1$
+        Log.info(this, "  writeBlocks:     "+writeBlocks) ; //$NON-NLS-1$
     }
     
     @Override
@@ -420,7 +447,7 @@ public class BlockMgrJournal implements BlockMgr, TransactionLifecycle
     }
 
     @Override
-    public String toString() { return "Journal:"+fileRef.getFilename()+" ("+blockMgr.getClass().getSimpleName()+")" ; }
+    public String toString() { return "Journal:"+fileRef.getFilename()+" ("+blockMgr.getClass().getSimpleName()+")" ; } //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
 
     @Override
     public String getLabel() { return fileRef.getFilename() ; }
